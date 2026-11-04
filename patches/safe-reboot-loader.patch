@@ -1,0 +1,39 @@
+--- a/xnuloader/loader.c
++++ b/xnuloader/loader.c
+@@ -1029,6 +1029,7 @@
+  * for the commands that the host sends meanwhile (usb_poll_command).
+  */
+ static const struct kernel_live *running_live;
++static int restart_after_save;
+ static uint64_t running_slide;
+ static void usb_poll_command(void);
+ 
+@@ -3525,6 +3526,14 @@
+ 		}
+ 	}
+ 	write_logs(klog, klog_len);
++	if (restart_after_save && kernel_live != NULL && reason == 0) {
++		flush_dcache((uint64_t)(uintptr_t)&kernel_live->stop, (uint64_t)(uintptr_t)&kernel_live->stop + sizeof(kernel_live->stop));
++		if (kernel_live->stop == 3) {
++			print("saved: automatic cold restart\n");
++			ST->rt->reset_system(0 /* EfiResetCold */, 0, 0, NULL);
++		}
++		print("automatic restart withheld: save was not confirmed\n");
++	}
+ 	return 1;
+ }
+ 
+@@ -3734,6 +3743,13 @@
+ 		    starts_with(cmd, "oem selftest") || starts_with(cmd, "oem hang") || starts_with(cmd, "oem recording") ||
+ 		    starts_with(cmd, "oem sound") || starts_with(cmd, "oem clearscreen") || starts_with(cmd, "oem memmap"))) {
+ 			fb_reply("FAIL", "a kernel is running (oem stop ends it)");
++		} else if (str_eq(cmd, "oem stop-reboot")) {
++			if (!busy) { fb_reply("FAIL", "no kernel running"); }
++			else {
++				restart_after_save = 1;
++				((struct kernel_live *)(uintptr_t)running_live)->stop = 2;
++				fb_reply("OKAY", "save and restart requested");
++			}
+ 		} else if (starts_with(cmd, "oem stop")) {
+ 			/* the kernel looks at this once a second and comes back as it does when its time is up */
+ 			if (busy) {

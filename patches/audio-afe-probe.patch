@@ -1,0 +1,79 @@
+--- a/bsd/dev/mi8_rproc.c
++++ b/bsd/dev/mi8_rproc.c
+@@ -3834,6 +3834,16 @@
+  * redwood_adsp.c (https://github.com/oosexgang/hackios-xnu-kernel, APSL-2.0).
+  * This does not configure an audio stream or amplifier. */
+ #include "mi8-apr-client.h"
++#include "mi8-afe.h"
++#include "mi8-audio-session.h"
++#include "mi8-smmu-program.h"
++#include "mi8-audio-dma.inc"
++#include "mi8-audio-dma-probe.inc"
++#include "mi8-i2c.h"
++#include "mi8-speaker-i2c.inc"
++#include "mi8-speaker-reset.inc"
++#include "mi8-speaker-init.inc"
++#include "mi8-speaker-probe.inc"
+ 
+ struct audio_apr_header {
+ 	uint16_t field, size;
+@@ -3959,6 +3969,23 @@
+ 			memcpy(&state, client.response, sizeof(state));
+ 		say("mi8rp: audio-apr-client: state request error %d opcode %#x status %#x state %u\n",
+ 		    error, client.response_opcode, client.dsp_status, state);
++		uint32_t afe_probe = 0;
++		if (PE_parse_boot_argn("mi8_afe_probe", &afe_probe, sizeof(afe_probe)) && afe_probe == 1 &&
++		    !error && client.response_opcode == 0x0001290du && state == 1) {
++			struct mi8_afe_result result = mi8_afe_probe(&client);
++			say("mi8rp: audio-afe: quat clock=%d config=%d start=%d stop=%d off=%d\n",
++			    result.clock_on, result.configure, result.start, result.stop, result.clock_off);
++			say("mi8rp: audio-adm: open=%d copp=%u close=%d\n",
++			    result.adm.open, result.adm.copp, result.adm.close);
++			say("mi8rp: audio-asm: open=%d route=%d format=%d run=%d close=%d\n",
++			    result.adm.stream.open, result.adm.stream.route, result.adm.stream.format,
++			    result.adm.stream.run, result.adm.stream.close);
++		}
++		uint32_t dma_probe = 0;
++		if (PE_parse_boot_argn("mi8_dma_probe", &dma_probe, sizeof(dma_probe)) && dma_probe == 1 &&
++		    !error && client.response_opcode == 0x0001290du && state == 1) {
++			mi8_audio_dma_probe(&client);
++		}
+ 		answer.client = NULL;
+ 	}
+ 	if (apr && !answer.answered) say("mi8rp: audio-apr: no valid core state response\n");
+@@ -3993,9 +4020,11 @@
+ 	if (last >= 7 && step_header() && step_image() && last >= 8) {
+ 		bool up = step_start();
++		bool stopped = false;
+ 
+ 		if (up && last >= 9) audio_glink_probe(last >= 10);
+ 		if (adsp_started) {
+-			dsp_shutdown(up ? "the watch is over" : "it did not come up");
++			stopped = dsp_shutdown(up ? "the watch is over" : "it did not come up");
+ 		}
++		mi8_audio_dma_probe_shutdown(stopped);
+ 		say("mi8rp: step 8 done%s\n", up ? ": the audio DSP came up and was stopped" : ": THE AUDIO DSP DID NOT COME UP");
+ 	}
+@@ -4125,8 +4154,22 @@
+ 	uint32_t audio_probe = 0, modem_requested = 0;
+ 
+ 	PE_parse_boot_argn("mi8rp_step", &audio_probe, sizeof(audio_probe));
+ 	PE_parse_boot_argn("mi8rp_mss", &modem_requested, sizeof(modem_requested));
++	{
++		uint32_t speaker_probe = 0;
++		if (PE_parse_boot_argn("mi8_tas_probe", &speaker_probe, sizeof(speaker_probe)) && speaker_probe == 1) {
++			thread_t thread;
++			if (audio_probe || modem_requested) {
++				say("mi8speaker: DSP or modem requested; refusing speaker probe\n");
++				return;
++			}
++			if (kernel_thread_start(mi8_speaker_probe_thread, NULL, &thread) == KERN_SUCCESS)
++				thread_deallocate(thread);
++			else
++				say("mi8speaker: unable to start probe thread\n");
++		}
++	}
+ 	if (audio_probe >= 9 && modem_requested != 0) {
+ 		say("mi8rp: audio-glink: modem requested too; refusing both experiments\n");
+ 		return;
+ 	}

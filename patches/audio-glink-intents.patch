@@ -1,0 +1,46 @@
+--- a/bsd/dev/mi8_glink.c
++++ b/bsd/dev/mi8_glink.c
+@@ -28,7 +28,7 @@
+ #define PORTS 16
+ #define LOOKUPS 16
+ #define SERVERS 64
+-#define INTENTS 64
++#define INTENTS 256
+ #define MAX_PACKET 65536u
+ #define WAIT_US 5000000u
+ #define CTRL 0xfffffffeu
+@@ -76,7 +76,7 @@
+ 	uint32_t length, offset, iid;
+ 	uint64_t since;
+ 	int error;
+-	bool requested, answered, granted, synchronous, done;
++	bool requested, answered, granted, synchronous, done, assigned;
+ 	uint8_t bytes[];
+ };
+ struct mi8_glink {
+@@ -363,7 +363,7 @@
+ {
+ 	struct outgoing *o = g->outgoing;
+ 	unsigned i;
+-	if (error && !o->offset && o->iid) for (i = 0; i < INTENTS; i++)
++	if (error && !o->offset && o->assigned) for (i = 0; i < INTENTS; i++)
+ 		if (g->foreign[i].there && g->foreign[i].id == o->iid) g->foreign[i].busy = false;
+ 	if (error && o->length > 1000) LOG(g, "mi8gl: send of %u bytes FAILED (%d), offset %u, intent %u\n", o->length, error, o->offset, o->iid);
+ 	g->outgoing = o->next;
+@@ -397,7 +397,7 @@
+ 			continue;
+ 		}
+ 		if (g->commands) return;
+-		if (!o->iid) {
++		if (!o->assigned) {
+ 			for (i = 0; i < INTENTS; i++) {
+ 				struct intent *v = &g->foreign[i];
+ 				if (v->there && !v->busy && v->size >= o->length &&
+@@ -414,6 +414,7 @@
+ 			}
+ 			g->foreign[best].busy = true;
+ 			o->iid = g->foreign[best].id;
++			o->assigned = true;
+ 			if (o->length > 1000) LOG(g, "mi8gl: sends %u bytes in remote intent %u (size %u)\n", o->length, o->iid, g->foreign[best].size);
+ 		}
+ 		available = room(g, true);

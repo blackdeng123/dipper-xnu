@@ -1,0 +1,62 @@
+--- a/bsd/dev/mi8_rproc.c
++++ b/bsd/dev/mi8_rproc.c
+@@ -3841,7 +3841,7 @@
+ 	uint16_t to_port;
+ 	uint32_t token, opcode;
+ };
+-struct audio_apr_probe { bool answered; uint32_t state; };
++struct audio_apr_probe { bool answered, versions; uint32_t state; };
+ 
+ static void
+ audio_apr_receive(void *ctx, const void *data, size_t length)
+@@ -3854,6 +3854,17 @@
+ 	uint32_t header_length = ((h.field >> 4) & 0xf) * 4;
+ 	if (header_length < sizeof(h) || header_length > length || h.size > length || h.size < header_length) return;
+ 	say("mi8rp: audio-apr: response opcode %#x token %u length %u\n", h.opcode, h.token, h.size);
++	if (h.token == 2 && h.opcode == 0x00012906u) {
++		const uint8_t *bytes = (const uint8_t *)data + header_length;
++		uint32_t payload = h.size - header_length;
++		for (uint32_t i = 0; i + 4 <= payload && i < 256; i += 4) {
++			uint32_t word;
++			memcpy(&word, bytes + i, sizeof(word));
++			say("mi8rp: audio-apr: versions word %u = %#x\n", i / 4, word);
++		}
++		probe->versions = true;
++		return;
++	}
+ 	if (h.token != 1 || h.opcode != 0x0001290du || h.size - header_length < sizeof(state)) return;
+ 	memcpy(&state, (const uint8_t *)data + header_length, sizeof(state));
+ 	probe->state = state;
+@@ -3867,7 +3878,7 @@
+ 	struct mi8_glink_cfg cfg;
+ 	struct mi8_glink *link;
+ 	struct audio_apr_probe answer = { 0 };
+-	bool started = false, sent = false;
++	bool started = false, sent = false, versions_sent = false;
+ 	bzero(&cfg, sizeof(cfg));
+ 	cfg.name = "adsp";
+ 	cfg.remote_pid = SMEM_ADSP;
+@@ -3906,11 +3917,22 @@
+ 				say("mi8rp: audio-apr: state request %s (%d)\n", error == 0 ? "sent" : "failed", error);
+ 			}
+ 		}
+-		if (apr && answer.answered) break;
++		if (apr && answer.answered && !versions_sent) {
++			struct audio_apr_header request = { .field = 0x250, .size = sizeof(request),
++			    .from_service = 3, .from_domain = 5, .to_service = 3, .to_domain = 4,
++			    .token = 2, .opcode = 0x00012905u };
++			int error = mi8_glink_raw_send(link, &request, sizeof(request));
++			if (error != ENOTCONN) {
++				versions_sent = true;
++				say("mi8rp: audio-apr: versions request %s (%d)\n", error == 0 ? "sent" : "failed", error);
++			}
++		}
++		if (apr && answer.versions) break;
+ 		delay_for_interval(10, NSEC_PER_MSEC);
+ 	}
+ 	if (!started) say("mi8rp: audio-glink: no remote FIFO or link could not start\n");
+ 	if (apr && !answer.answered) say("mi8rp: audio-apr: no valid core state response\n");
++	if (apr && answer.answered && !answer.versions) say("mi8rp: audio-apr: no versions response\n");
+ 	mi8_glink_destroy(link);
+ 	say("mi8rp: audio-glink: probe ended; DSP stop follows\n");
+ }

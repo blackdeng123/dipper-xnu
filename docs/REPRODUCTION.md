@@ -1,5 +1,12 @@
 # 2026-10-30 独立目录复现记录
 
+## 2026-11-04 WSL 补充诊断
+
+- Debian 13.7 WSL 2，x86_64；Clang 19.1.7、GNU Make 4.4.1、Python 3.13.5。使用已有的 `~/dipper-xnu-build` 的依赖和 Theos，在单独复制的 XNU 源码及 BUILD 目录中执行 `THEOS=... XNU_SRC=... bash xnu-build.sh -j8 -k`，退出 2。此树与依赖并非全新安装，不能作为干净构建验证。
+- 原始日志显示 `check_all_exports`、IOKit、Libkern 和 Private symbolset 缺少导出符号，且 LLDB 安装因 `env: python: No such file or directory` 失败。现有 Linux `iig` 替身只为链接所需符号生成实现，而 Apple 导出清单还要求额外 DriverKit 方法；Private 清单也包含平台未实现的 IOMMU 等符号。不能以忽略缺失导出或无条件生成空实现作为完整验证。
+- 应用 `patches/xnu-all-python.patch` 后，删除隔离构建树中两份生成的 dSYM Python 目录并重跑同一命令：154 条 `INSTALLPY` 执行完毕，没有 LLDB 目标错误；命令仍退出 2，剩余错误为上述导出检查。补丁保留语法检查，使用 PATH 中的 Python 3；Python 3.14 的导入路径防护尚未在该版本实测。
+- 原始日志、修复后日志分别保存在 WSL 的 `[WSL 隔离目录]/before.log` 和 `python-fix-fresh.log`。这次没有验证设备启动，也没有完成导出清单和 DriverKit 实现的兼容性修复。
+
 起点：公开仓库提交 `e930c26c4303283d7f2f5fc87479946d46409783`，Ubuntu 26.04.1 LTS x86_64。下面结果包含本次对教程和构建脚本的修复，不代表原提交未经修改即可全部通过。
 
 ## 输入与隔离

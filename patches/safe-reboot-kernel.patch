@@ -1,0 +1,107 @@
+--- a/bsd/dev/redwood_ufs.c
++++ b/bsd/dev/redwood_ufs.c
+@@ -198,6 +198,7 @@
+ #define VAR_SAVE_IDLE      1
+ #define VAR_SAVE_WANTED    2
+ #define VAR_SAVE_DONE      3
++#define VAR_SAVE_FAILED    4
+ #define VAR_SAVE_MS        20000        /* at most this long on the way out (var_save_ms=N) */
+ 
+ static volatile int ufs_var_save = VAR_SAVE_NONE;
+@@ -241,8 +242,8 @@
+ 	}
+ 	if (value == VAR_SAVE_IDLE && ufs_var_save != VAR_SAVE_WANTED) {
+ 		ufs_var_save = VAR_SAVE_IDLE;           /* a saver is there; it is the one that will be asked */
+-	} else if (value == VAR_SAVE_DONE && ufs_var_save == VAR_SAVE_WANTED) {
+-		ufs_var_save = VAR_SAVE_DONE;           /* and it has finished: the way out may go on */
++	} else if ((value == VAR_SAVE_DONE || value == VAR_SAVE_FAILED) && ufs_var_save == VAR_SAVE_WANTED) {
++		ufs_var_save = value;           /* and it has finished: the way out may go on */
+ 	} else if (value == VAR_SAVE_NONE) {
+ 		ufs_var_save = VAR_SAVE_NONE;
+ 	} else {
+@@ -900,19 +901,19 @@
+  * so twenty seconds here is well inside both. Nothing else of the way out has happened yet: the
+  * GPU, the DSPs and this kernel's transfer list are still as the run had them.
+  */
+-void
++int
+ redwood_var_save_on_return(void)
+ {
+ 	uint32_t ms = VAR_SAVE_MS;
+ 	uint64_t waited = 0;
+ 
+ 	if (!ufs_ready || ufs_write_part < 0 || ufs_var_save != VAR_SAVE_IDLE) {
+-		return;
++		return 0;
+ 	}
+ 	PE_parse_boot_argn("var_save_ms", &ms, sizeof(ms));
+ 	printf("var_store: the run is ending: the data volume is asked for\n");
+ 	ufs_var_save = VAR_SAVE_WANTED;
+-	while (ufs_var_save != VAR_SAVE_DONE && waited < ms) {
++	while (ufs_var_save != VAR_SAVE_DONE && ufs_var_save != VAR_SAVE_FAILED && waited < ms) {
+ 		IOSleep(20);
+ 		waited += 20;
+ 	}
+@@ -920,8 +921,9 @@
+ 		/* what it made of it is in its own lines: this only says it answered */
+ 		printf("var_store: the saver has finished after %llu ms\n", waited);
+ 	} else {
+-		printf("var_store: the saver did not answer in %u ms: the store keeps what it had\n", ms);
+-	}
++		printf("var_store: saver failed or timed out after %llu ms\n", waited);
++	}
++	return ufs_var_save == VAR_SAVE_DONE;
+ }
+ 
+ /* ---- the check: the partitions there are images of, hashed as the loader hashes them ---- */
+--- a/osfmk/arm64/loader_return.c
++++ b/osfmk/arm64/loader_return.c
+@@ -59,7 +59,8 @@
+ extern void redwood_camera_quiesce(void);
+ extern void redwood_mic_quiesce(void);
+ extern void redwood_ufs_quiesce(void);
+-extern void redwood_var_save_on_return(void);   /* bsd/dev/redwood_ufs.c: the data volume into the flash */
++extern int redwood_var_save_on_return(void);
++extern int64_t psci_smp_system_reset(void);   /* bsd/dev/redwood_ufs.c: the data volume into the flash */
+ void loader_checkpoint(uint64_t n);
+ 
+ /* Also referenced from the early exception vector in start.s. */
+@@ -490,10 +491,21 @@
+ 		for (const char *c = banner; *c; c++) {
+ 			loader_log_putc(*c);
+ 		}
+-		redwood_var_save_on_return();
++		uint64_t request = loader_live.stop;
++		int saved = redwood_var_save_on_return();
++		if (request == 2 && saved) {
++			loader_log_puts("automatic reboot: save confirmed; requesting PSCI reset\n");
++			(void)psci_smp_system_reset();
++			loader_log_puts("automatic reboot: PSCI reset returned; trying loader\n");
++		}
+ 		redwood_adreno_stop();
+ 		redwood_wifi_stop();
+ 		redwood_adsp_stop();
++		if (request == 2) {
++			loader_log_puts(saved ? "automatic reboot: save confirmed\n" : "automatic reboot: save failed\n");
++			loader_live.stop = saved ? 3 : 4;
++			__asm__ volatile ("dc cvac, %0; dsb sy" : : "r" ((uintptr_t)&loader_live.stop) : "memory");
++		}
+ 		loader_return();
+ 	}
+ 	clock_interval_to_deadline(1, NSEC_PER_SEC, &deadline);
+--- a/osfmk/arm64/psci_smp.c
++++ b/osfmk/arm64/psci_smp.c
+@@ -101,6 +101,13 @@
+ 	return (int64_t)x0;
+ }
+ 
++/* PSCI SYSTEM_RESET: a returned error leaves the existing loader path available. */
++int64_t
++psci_smp_system_reset(void)
++{
++	return psci_call(0x84000009u, 0, 0, 0);
++}
++
+ static const char *
+ psci_error(int64_t status)
+ {

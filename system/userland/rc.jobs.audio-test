@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# Diagnostic only: drive iOS's audio queue and then the kernel device directly.
+# The amplifier is not enabled by this script.
+/redwood/bin/sound_test wait 90 route level 0.05 tone 3 wait 5 raw 3

@@ -1,0 +1,17 @@
+--- a/xnuloader/loader.c
++++ b/xnuloader/loader.c
+@@ -3526,12 +3526,12 @@
+ 	}
+ 	write_logs(klog, klog_len);
+-	if (restart_after_save && kernel_live != NULL && reason == 0) {
++	if (kernel_live != NULL && reason == 0) {
+ 		flush_dcache((uint64_t)(uintptr_t)&kernel_live->stop, (uint64_t)(uintptr_t)&kernel_live->stop + sizeof(kernel_live->stop));
+ 		if (kernel_live->stop == 3) {
+ 			print("saved: automatic cold restart\n");
+ 			ST->rt->reset_system(0 /* EfiResetCold */, 0, 0, NULL);
+ 		}
+-		print("automatic restart withheld: save was not confirmed\n");
++		if (restart_after_save) print("automatic restart withheld: save was not confirmed\n");
+ 	}
+ 	return 1;
+ }

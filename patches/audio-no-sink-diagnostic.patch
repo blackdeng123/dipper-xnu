@@ -1,0 +1,49 @@
+--- a/bsd/dev/redwood_audio.c
++++ b/bsd/dev/redwood_audio.c
+@@ -77,6 +77,7 @@
+ /* the stretch of writing in progress */
+ static uint64_t stretch_first, stretch_last;    /* mach_absolute_time() of its first and its latest write */
+ static uint64_t stretch_frames, stretch_latest; /* frames written, and how many of them by the latest write */
++static uint64_t stretch_no_sink;                /* frames dropped because no output sink was registered */
+ static uint64_t stretch_sound, stretch_lost;    /* frames in writes that were not silence; frames the sink did not take */
+ static uint32_t stretch_peak;                   /* the largest sample, as an absolute value */
+ static thread_call_t report_call;
+@@ -85,7 +86,7 @@
+ static void
+ audio_report(__unused thread_call_param_t p0, __unused thread_call_param_t p1)
+ {
+-	uint64_t frames, latest, sound, lost, deadline, since = 0, lasted = 0;
++	uint64_t frames, latest, sound, lost, no_sink, deadline, since = 0, lasted = 0;
+ 	uint32_t loudest;
+ 
+ 	lck_mtx_lock(&audio_lock);
+@@ -102,8 +103,9 @@
+ 	latest = stretch_latest;
+ 	sound = stretch_sound;
+ 	lost = stretch_lost;
++	no_sink = stretch_no_sink;
+ 	loudest = stretch_peak;
+-	stretch_frames = stretch_sound = stretch_lost = 0;
++	stretch_frames = stretch_sound = stretch_lost = stretch_no_sink = 0;
+ 	stretch_peak = 0;
+ 	report_armed = false;
+ 	lck_mtx_unlock(&audio_lock);
+@@ -116,6 +118,9 @@
+ 	}
+ 	printf(", %llu.%02llu s of it sound, peak %u%% of full scale", sound / REDWOOD_AUDIO_RATE,
+ 	    sound % REDWOOD_AUDIO_RATE * 100 / REDWOOD_AUDIO_RATE, loudest * 100 / 32768);
++	if (no_sink) {
++		printf(", %llu ms dropped (no output sink)", no_sink * 1000 / REDWOOD_AUDIO_RATE);
++	}
+ 	if (lost) {
+ 		printf(", %llu ms lost (the sink was full)", lost * 1000 / REDWOOD_AUDIO_RATE);
+ 	}
+@@ -188,6 +193,8 @@
+ 	if (audio_sink != NULL) {
+ 		taken = audio_sink(frames, count);
+ 		stretch_lost += count - taken;
++	} else {
++		stretch_no_sink += count;
+ 	}
+ 	stretch_last = mach_absolute_time();
+ 	if (stretch_frames == 0) {

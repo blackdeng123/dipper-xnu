@@ -1,0 +1,65 @@
+--- a/bsd/dev/mi8_rproc.c
++++ b/bsd/dev/mi8_rproc.c
+@@ -3833,7 +3833,7 @@
+ /* APR core-service state request, using the packet layout already used by
+  * redwood_adsp.c (https://github.com/oosexgang/hackios-xnu-kernel, APSL-2.0).
+  * This does not configure an audio stream or amplifier. */
+-#include "mi8-apr-response.h"
++#include "mi8-apr-client.h"
+ 
+ struct audio_apr_header {
+ 	uint16_t field, size;
+@@ -3843,13 +3843,14 @@
+ 	uint16_t to_port;
+ 	uint32_t token, opcode;
+ };
+-struct audio_apr_probe { bool answered, versions; uint32_t state; };
++struct audio_apr_probe { bool answered, versions; uint32_t state; struct mi8_apr_client *client; };
+ 
+ static void
+ audio_apr_receive(void *ctx, const void *data, size_t length)
+ {
+ 	struct audio_apr_probe *probe = ctx;
+ 	struct audio_apr_header h;
++	if (probe->client) mi8_apr_client_receive(probe->client, data, length);
+ 	uint32_t state;
+ 	if (length < sizeof(h)) return;
+ 	memcpy(&h, data, sizeof(h));
+@@ -3875,6 +3876,18 @@
+ 	probe->state = state;
+ 	probe->answered = true;
+ 	say("mi8rp: audio-apr: core state %u\n", state);
++}
++
++static int
++audio_glink_apr_send(void *ctx, const void *data, size_t size)
++{
++	return mi8_glink_raw_send((struct mi8_glink *)ctx, data, size);
++}
++
++static void
++audio_glink_apr_poll(void *ctx)
++{
++	mi8_glink_poll_once((struct mi8_glink *)ctx);
+ }
+ 
+ static void
+@@ -3936,6 +3949,18 @@
+ 		delay_for_interval(10, NSEC_PER_MSEC);
+ 	}
+ 	if (!started) say("mi8rp: audio-glink: no remote FIFO or link could not start\n");
++	if (apr && answer.versions) {
++		struct mi8_apr_client client = { .transport = link, .send = audio_glink_apr_send,
++		    .poll = audio_glink_apr_poll, .sleep_us = svc_sleep_us, .now_us = svc_now_us, .next_token = 2 };
++		answer.client = &client;
++		int error = mi8_apr_client_call(&client, 3, 0, 0x0001290cu, 0x0001290du, NULL, 0, 1000000);
++		uint32_t state = 0;
++		if (!error && client.response_opcode == 0x0001290du && client.response_length >= sizeof(state))
++			memcpy(&state, client.response, sizeof(state));
++		say("mi8rp: audio-apr-client: state request error %d opcode %#x status %#x state %u\n",
++		    error, client.response_opcode, client.dsp_status, state);
++		answer.client = NULL;
++	}
+ 	if (apr && !answer.answered) say("mi8rp: audio-apr: no valid core state response\n");
+ 	if (apr && answer.answered && !answer.versions) say("mi8rp: audio-apr: no versions response\n");
+ 	mi8_glink_destroy(link);

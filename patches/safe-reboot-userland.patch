@@ -1,0 +1,21 @@
+--- a/userland/src/var_store.c
++++ b/userland/src/var_store.c
+@@ -112,6 +112,7 @@
+ #define VAR_SAVE_IDLE   1
+ #define VAR_SAVE_WANTED 2
+ #define VAR_SAVE_DONE   3
++#define VAR_SAVE_FAILED 4
+ 
+ /* Is NAME=VALUE among the kernel's arguments? (as init.c reads them) */
+ static int
+@@ -1303,8 +1304,8 @@
+ 			}
+ 			last = (uint64_t)tv.tv_sec;
+ 			if (asked) {
+-				/* answered either way: the kernel is waiting on this to go back to the loader */
+-				(void)sysctl_set_int("kern.redwood.var_save", VAR_SAVE_DONE);
++				/* Tell the kernel whether the archive was written successfully. */
++				(void)sysctl_set_int("kern.redwood.var_save", ok ? VAR_SAVE_DONE : VAR_SAVE_FAILED);
+ 				return ok;
+ 			}
+ 		}

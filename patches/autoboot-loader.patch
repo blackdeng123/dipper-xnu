@@ -1,0 +1,113 @@
+--- a/xnuloader/loader.c
++++ b/xnuloader/loader.c
+@@ -2573,11 +2573,14 @@
+ 	const uint8_t *kernel;
+ 	const uint8_t *ramdisk;
+ 	uint32_t ramdisk_size;
++	const uint8_t *flashboot;
++	uint32_t flashboot_size;
+ 	const char *cmdline;
+ 	uint64_t checkpoint;
+ 	uint64_t forced_base;
+ 	uint64_t resident_rd;           /* size of a root image the host put at the resident address */
+ 	int usb_mode;
++	int auto_usb;
+ 	int timer_probe;                /* "timerprobe" entry: only report which PPI the virtual timer raises, run no kernel */
+ 	int id_probe;                   /* "idprobe" entry: start each core in turn, read its ID registers, switch it off again (EXP-0043) */
+ };
+@@ -2620,6 +2623,9 @@
+ 		if (str_eq(e->name, "ramdisk")) {
+ 			pi->ramdisk = p + sizeof(*e);             /* becomes /dev/md0, the root device */
+ 			pi->ramdisk_size = e->size;
++		} else if (str_eq(e->name, "flashboot")) {
++			pi->flashboot = p + sizeof(*e);
++			pi->flashboot_size = e->size;
+ 		} else if (str_eq(e->name, "kernel")) {
+ 			pi->kernel = p + sizeof(*e);
+ 		} else if (str_eq(e->name, "cmdline")) {
+@@ -2632,6 +2638,8 @@
+ 			pi->checkpoint = parse_number(text, 10);  /* where the kernel should stop and come back */
+ 		} else if (str_eq(e->name, "usb")) {
+ 			pi->usb_mode = 1;                         /* stay in the loader and take commands over USB */
++		} else if (str_eq(e->name, "autousb")) {
++			pi->auto_usb = 1;
+ 		} else if (str_eq(e->name, "timerprobe")) {
+ 			pi->timer_probe = 1;
+ 		} else if (str_eq(e->name, "idprobe")) {
+@@ -2700,6 +2708,7 @@
+ static uint64_t win_base, win_size; /* XNU's physical memory window, claimed once */
+ static uint64_t resident_rd_size;   /* root image kept at win_base + RESIDENT_RD_OFFSET, 0 if none */
+ static char last_result[64] = "idle";
++static int autoboot_finished;
+ 
+ static void
+ set_result(const char *what, uint64_t a, uint64_t b)
+@@ -2873,7 +2882,15 @@
+ 	/* A resident image next to a payload ramdisk: two disks (which is which is decided where the device tree is written). */
+ 	uint64_t rd1_pa = 0, rd1_size = 0;
+ 
+-	if (pi.resident_rd != 0) {
++	if (pi.flashboot != NULL) {
++		if (pi.flashboot_size == 0 || pi.resident_rd != 0 || resident_rd_size != 0 ||
++		    win_size <= RESIDENT_RD_OFFSET + RESIDENT_RD_RESERVE ||
++		    pi.flashboot_size > win_size - RESIDENT_RD_OFFSET - RESIDENT_RD_RESERVE) {
++			print("invalid embedded flashboot or insufficient resident memory\n");
++			return 0;
++		}
++		resident_rd_size = pi.flashboot_size;
++	} else if (pi.resident_rd != 0) {
+ 		resident_rd_size = pi.resident_rd;
+ 	}
+ 	if (resident_rd_size != 0) {
+@@ -2922,6 +2939,10 @@
+ 		memcpy((void *)rd_pa, pi.ramdisk, pi.ramdisk_size);
+ 		print("ramdisk at pa %x size %x\n", rd_pa, rd_size);
+ 	}
++	if (pi.flashboot != NULL) {
++		memcpy((void *)(phys_base + RESIDENT_RD_OFFSET), pi.flashboot, pi.flashboot_size);
++		print("embedded flashboot copied to resident memory\n");
++	}
+ 	if (rd1_size != 0) {
+ 		print("resident image at pa %x size %x: it is the root (md0), the payload ramdisk is md1\n", rd1_pa, rd1_size);
+ 	}
+@@ -3706,7 +3727,10 @@
+ 	int busy = running_live != NULL;
+ 
+ 	{
+-		if (busy && (starts_with(cmd, "oem ramdisk") || starts_with(cmd, "download:") || starts_with(cmd, "oem run") ||
++		if (autoboot_finished && (starts_with(cmd, "oem run") || starts_with(cmd, "oem selftest") ||
++		    starts_with(cmd, "oem ramdisk") || starts_with(cmd, "download:"))) {
++			fb_reply("FAIL", "reboot required after autoboot");
++		} else if (busy && (starts_with(cmd, "oem ramdisk") || starts_with(cmd, "download:") || starts_with(cmd, "oem run") ||
+ 		    starts_with(cmd, "oem selftest") || starts_with(cmd, "oem hang") || starts_with(cmd, "oem recording") ||
+ 		    starts_with(cmd, "oem sound") || starts_with(cmd, "oem clearscreen") || starts_with(cmd, "oem memmap"))) {
+ 			fb_reply("FAIL", "a kernel is running (oem stop ends it)");
+@@ -4319,6 +4343,10 @@
+ 	if (have_payload && pi.id_probe) {
+ 		id_probe();
+ 	}
++	int auto_usb_ready = have_payload && pi.auto_usb && !pi.usb_mode && usb_start();
++	if (have_payload && pi.auto_usb && !pi.usb_mode && !auto_usb_ready) {
++		print("autoboot: USB diagnostics unavailable\n");
++	}
+ 	if (have_payload && pi.usb_mode && usb_start()) {
+ 		flush_log();
+ 		usb_command_loop();
+@@ -4339,7 +4367,16 @@
+ 
+ 	/* One-shot mode: run the kernel that came with the image, then reset. */
+ 	if (have_payload) {
+-		run_kernel(0, 0);
++		if (auto_usb_ready) {
++			set_result("running", 0, 0);
++		}
++		if (!run_kernel(0, 0)) {
++			set_result("not-started", 0, 0);
++		}
++		if (auto_usb_ready) {
++			autoboot_finished = 1;
++			usb_command_loop();
++		}
+ 		if (PLAT->no_log_write) {
+ 			/*
+ 			 * Nothing persists the log here, and a reset now would take the screen with it (EXP-0029:

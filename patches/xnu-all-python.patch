@@ -1,0 +1,33 @@
+diff --git a/makedefs/MakeInc.rule b/makedefs/MakeInc.rule
+index 59e4063..cc31253 100644
+--- a/makedefs/MakeInc.rule
++++ b/makedefs/MakeInc.rule
+@@ -119,7 +119,7 @@ $(1): $(5)% : $(2) | $(3)_MKDIR
+ 	fi;								\
+ 	$$(INSTALL) $$(DATA_INSTALL_FLAGS) \
+ 		./$(3)/$$*.unifdef.$$$$$$$$$$(suffix $$*) $$@ || exit 1; \
+-	$$(LLDBMACROS_SOURCE)/core/syntax_checker.py \
++	python3 $$(LLDBMACROS_SOURCE)/core/syntax_checker.py \
+ 		./$(3)/$$*.unifdef.$$$$$$$$$$(suffix $$*) $$(_vstdout) || exit 1; \
+ 	$$(RM) ./$(3)/$$*.unifdef.$$$$$$$$$$(suffix $$*)
+ 	$$(_v)if [ -n "$(5)" ]; then $$(TOUCH) "$(5)"; fi
+diff --git a/tools/lldbmacros/core/syntax_checker.py b/tools/lldbmacros/core/syntax_checker.py
+index 3ebc295..de101ea 100755
+--- a/tools/lldbmacros/core/syntax_checker.py
++++ b/tools/lldbmacros/core/syntax_checker.py
+@@ -12,10 +12,13 @@ Usage:
+ """
+ import sys
+ import os
++# When this file is executed directly, its directory is first on sys.path.
++# That directory contains collections.py, which shadows Python's standard
++# library collections module while importing re on Python 3.14 and newer.
++_script_dir = os.path.dirname(os.path.abspath(__file__))
++sys.path = [p for p in sys.path if os.path.abspath(p or os.curdir) != _script_dir]
+ import re
+-
+ tabs_search_rex = re.compile("^\s*\t+",re.MULTILINE|re.DOTALL)
+-
+ def find_non_ascii(s):
+     for c in s:
+         if ord(c) >= 0x80: return True

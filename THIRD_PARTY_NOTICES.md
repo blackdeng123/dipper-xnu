@@ -21,3 +21,13 @@
 Linux GPU 初始化表按 GPL-2.0-only 保留来源、版权及许可证全文，与 ISC ath10k 分开处理。该表由 APSL 内核驱动直接包含，组合分发条件尚未解决。Mesa/freedreno 与 Fuchsia 的宽松许可来源仅覆盖部分初始化；来源、差异和验证范围见 [GPU 许可说明](docs/GPU_LICENSE.md)。
 
 dipper 原创修改的作者为 yanei，其原创部分采用 MIT。第三方源文件声明及作者署名保留，不属于该 MIT 授权范围。
+
+## 小米 8 音频实验
+
+`system/kernel/mi8-afe.h`、`mi8-adm.h`、`mi8-asm.h`、`mi8-asm-pcm.h`、`mi8-pcm-engine.h`、`mi8-audio-sink.h`、`mi8-audio-session.h`、`mi8-smmu-pages.h`、`mi8-smmu-program.h`、`mi8-audio-dma.inc` 和 `mi8-audio-dma-probe.inc` 使用项目锁定的 HackiOS 内核版本中的音频和 SMMU 实现作为基础，遵循该来源的 APSL-2.0；许可证见 [APSL-2.0](LICENSES/APSL-2.0.txt)，固定版本见 `upstream.lock.json`。音频 APR 客户端、PCM 环形队列和主机测试中的原创部分按文件标识采用 MIT。Qualcomm/Linux 的协议定义和 SDM845 资料仅作设备事实核对，未将 GPL 实现复制到这些文件。音频实验当前尚未形成可用的手机扬声器输出。
+
+`system/kernel/mi8-i2c.h` 的事务时序以及 `mi8-speaker-i2c.inc`、`mi8-speaker-reset.inc` 的 GPIO 操作参考本项目 `patches/xnu-mi8.patch` 中 `mi8_fts.c` 的触摸屏 I²C 代码；该原创代码由 yanei 和 dipper-xnu contributors 按 [MIT](LICENSES/MI8-packaging-MIT.txt) 授权，新文件按文件标识采用 APSL-2.0。NXP I²C 和 TI 功放文档仅用于核对设备事实，没有复制文档内容。该总线及复位适配层尚未在设备上启用或连接功放。
+
+本机调试使用 Android [Simpleperf NDK r17b](https://android.googlesource.com/platform/prebuilts/simpleperf/+/ndk-r17b/) 可执行文件读取 Linux 追踪事件；该工具属于 Android 开源项目，其源代码及第三方依赖按上游各自的许可处理，没有引入仓库。`tools/extract-i2c-perf.py` 是解析其文本输出的项目原创 MIT 工具，不包含采样得到的设备固件或校准数据。
+
+`tools/build-tas-init-transcript.py`、`tools/twrp-tas-init-check.c`、`system/kernel/mi8-tas-init.h`、`mi8-speaker-init.inc` 及其主机测试为项目原创 MIT 代码。生成的事务数据来自用户本机固件和校准，只存仓库外，不随项目分发；TI 数据手册和 Linux I²C 用户态文档仅供核对设备事实与接口。

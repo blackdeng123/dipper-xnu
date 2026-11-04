@@ -1,0 +1,38 @@
+--- a/bsd/dev/mi8_rproc.c
++++ b/bsd/dev/mi8_rproc.c
+@@ -3833,6 +3833,8 @@
+ /* APR core-service state request, using the packet layout already used by
+  * redwood_adsp.c (https://github.com/oosexgang/hackios-xnu-kernel, APSL-2.0).
+  * This does not configure an audio stream or amplifier. */
++#include "mi8-apr-response.h"
++
+ struct audio_apr_header {
+ 	uint16_t field, size;
+ 	uint8_t from_service, from_domain;
+@@ -3854,9 +3856,11 @@
+ 	uint32_t header_length = ((h.field >> 4) & 0xf) * 4;
+ 	if (header_length < sizeof(h) || header_length > length || h.size > length || h.size < header_length) return;
+ 	say("mi8rp: audio-apr: response opcode %#x token %u length %u\n", h.opcode, h.token, h.size);
+-	if (h.token == 2 && h.opcode == 0x00012906u) {
+-		const uint8_t *bytes = (const uint8_t *)data + header_length;
+-		uint32_t payload = h.size - header_length;
++	const uint8_t *response_bytes;
++	size_t response_size;
++	if (mi8_apr_response(data, length, 2, 0x00012906u, &response_bytes, &response_size)) {
++		const uint8_t *bytes = response_bytes;
++		size_t payload = response_size;
+ 		for (uint32_t i = 0; i + 4 <= payload && i < 256; i += 4) {
+ 			uint32_t word;
+ 			memcpy(&word, bytes + i, sizeof(word));
+@@ -3865,8 +3869,9 @@
+ 		probe->versions = true;
+ 		return;
+ 	}
+-	if (h.token != 1 || h.opcode != 0x0001290du || h.size - header_length < sizeof(state)) return;
+-	memcpy(&state, (const uint8_t *)data + header_length, sizeof(state));
++	if (!mi8_apr_response(data, length, 1, 0x0001290du, &response_bytes, &response_size) ||
++	    response_size < sizeof(state)) return;
++	memcpy(&state, response_bytes, sizeof(state));
+ 	probe->state = state;
+ 	probe->answered = true;
+ 	say("mi8rp: audio-apr: core state %u\n", state);

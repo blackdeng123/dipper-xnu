@@ -1,0 +1,21 @@
+--- a/bsd/dev/mi8_rproc.c
++++ b/bsd/dev/mi8_rproc.c
+@@ -2803,7 +2803,10 @@
+ static void
+ wsmmu_before_power(void)
+ {
++	extern lck_mtx_t redwood_smmu_lock;
++	lck_mtx_lock(&redwood_smmu_lock);
+ 	if (wsmmu_level == 0 || wsmmu != 0) {
++		lck_mtx_unlock(&redwood_smmu_lock);
+ 		return;
+ 	}
+ 	wsmmu = ml_io_map(WSMMU_PHYS, 0x2000);
+@@ -2811,6 +2814,7 @@
+ 	if (wsmmu_level >= 2) {
+ 		wsmmu_bypass();
+ 	}
++	lck_mtx_unlock(&redwood_smmu_lock);
+ }
+ 
+ /* ---- the radio's firmware service (WLFW, QRTR service 69; TASK-004): mi8rp_wlfw=1 goes up to FW_READY, 2 also powers the chip and sends WLAN_CFG + WLAN_MODE ---- */

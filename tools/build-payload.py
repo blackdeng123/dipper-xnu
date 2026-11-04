@@ -26,12 +26,13 @@ def main():
     parser.add_argument('--seconds', type=int, default=300)
     parser.add_argument('--wifi', action='store_true', help='enable Mi8 modem/ath10k station mode')
     parser.add_argument('--peripherals', action='store_true', help='enable battery reporting, iOS torch and haptics')
+    parser.add_argument('--kernel-file', type=Path, help='use a separately built kernel')
     args = parser.parse_args()
     if not 60 <= args.seconds <= 1800:
         raise SystemExit('Use a bounded run between 60 and 1800 seconds')
     k = ROOT / 'work/hackios'
     inputs = {
-        'kernel.macho': k / 'xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837',
+        'kernel.macho': args.kernel_file or k / 'xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837',
         'root.apfs': k / 'userland/root.apfs',
         'flashboot.apfs': k / 'userland/flashboot.apfs',
         'boot-dipper.img': ROOT / 'work/edk2/boot-dipper.img',

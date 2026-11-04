@@ -82,6 +82,8 @@ def main():
                'simpleinit': trees['edk2'] / 'GPLDrivers/Library/SimpleInit'}
     for name, target in targets.items():
         patch(name, target)
+    # Keep the LLDB syntax check usable on Linux hosts with only python3.
+    patch('xnu-all-python', x)
     for group in json.loads((ROOT / 'source-manifest.json').read_text()):
         for entry in group['files']:
             p = targets[group['component']] / entry['path']

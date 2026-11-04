@@ -116,7 +116,9 @@ stat xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development
 sha256sum xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837
 ```
 
-文件应为 ARM64 Mach-O 内核。本轮显式 `build` 目标退出码为 0；它执行头文件准备、编译和链接。原教程不指定目标的 `-j8 -k` 会继续执行 `all` 中的导出检查与工具生成，本轮因平台导出符号和 LLDB 脚本的 `python` 命令问题退出 2；这些检查尚未修复，不能宣称完整 `all` 通过。任何命令非零退出都应先检查日志。主机链接成功不代表设备可启动。
+文件应为 ARM64 Mach-O 内核。2026-10-30 显式 `build` 目标退出码为 0；它执行头文件准备、编译和链接。默认 `-j8 -k` 还执行 `all` 中的导出检查与工具生成，该次退出 2。任何命令非零退出都应先检查日志。主机链接成功不代表设备可启动。
+
+2026-11-04 更新：新准备的源码会应用 `xnu-all-python.patch`，LLDB 语法检查显式使用 `python3`，并避免其本地 `collections.py` 遮蔽标准库。Debian 13 的 Python 3.13 已验证该阶段，但导出检查仍失败，完整 `all` 尚未通过；详见 [复现记录](REPRODUCTION.md)。已准备的源码树可在 XNU 根目录执行 `git apply /path/to/dipper-xnu/patches/xnu-all-python.patch`，先用 `git apply --check` 检查，勿重复应用。
 
 ## 5. 编译加载器与 UEFI
 

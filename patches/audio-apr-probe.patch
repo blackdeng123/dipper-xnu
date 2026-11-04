@@ -1,0 +1,238 @@
+diff --git a/bsd/dev/mi8_glink.h b/bsd/dev/mi8_glink.h
+index 69bb595..be8ff8c
+--- a/bsd/dev/mi8_glink.h
++++ b/bsd/dev/mi8_glink.h
+@@ -32,6 +32,9 @@ struct mi8_glink_cfg {
+ 	void (*log)(void *, const char *, ...);
+ 	void *ctx;
+ 	uint32_t local_node; /* Zero selects the default node 1. */
++	/* Optional one-channel raw transport. NULL keeps the existing QRTR behaviour. */
++	const char *raw_channel;
++	void (*raw_receive)(void *, const void *, size_t);
+ };
+ 
+ struct mi8_qrtr_server {
+@@ -50,6 +53,7 @@ const struct redwood_qrtr_ops *mi8_glink_qrtr_ops(struct mi8_glink *);
+ /* Returns the number copied, or a positive errno negated for invalid arguments. */
+ int mi8_glink_qrtr_servers(struct mi8_glink *, struct mi8_qrtr_server *, unsigned);
+ int mi8_glink_qrtr_publish(struct mi8_glink *, struct redwood_qrtr_port *, uint32_t, uint32_t, uint32_t);
++int mi8_glink_raw_send(struct mi8_glink *, const void *, size_t);
+ 
+ /*
+  * Callbacks and API calls are serialized by a recursive, sleeping instance gate.
+diff --git a/bsd/dev/mi8_glink.c b/bsd/dev/mi8_glink.c
+index ecc76fc..fca6950
+--- a/bsd/dev/mi8_glink.c
++++ b/bsd/dev/mi8_glink.c
+@@ -321,6 +321,23 @@ queue_packet(struct mi8_glink *g, uint32_t type, uint32_t from, uint32_t node, u
+ 	return o;
+ }
+ 
++static struct outgoing *
++queue_raw(struct mi8_glink *g, const void *p, uint32_t len)
++{
++	struct outgoing *o;
++	if (g->outgoing_count == 64 || !(o = MI8_ALLOC(sizeof(*o) + len))) return NULL;
++	memset(o, 0, sizeof(*o) + len);
++	o->length = len;
++	o->synchronous = true;
++	o->since = g->cfg.now_us(g->cfg.ctx);
++	memcpy(o->bytes, p, len);
++	if (g->outgoing_last) g->outgoing_last->next = o;
++	else g->outgoing = o;
++	g->outgoing_last = o;
++	g->outgoing_count++;
++	return o;
++}
++
+ static void
+ control(struct mi8_glink *g, uint32_t type, uint32_t from, uint32_t node, uint32_t port,
+     uint32_t a, uint32_t b, uint32_t c, uint32_t d)
+@@ -575,15 +592,17 @@ static void
+ open_channel(struct mi8_glink *g)
+ {
+ 	static const uint32_t sizes[10] = { 0x800, 0x800, 0x800, 0x800, 0x800, 0x2000, 0x2000, 0x2000, 0x4400, 0x4400 };
++	const char *name = g->cfg.raw_channel != NULL ? g->cfg.raw_channel : "IPCRTR";
++	uint32_t name_size = (uint32_t)strlen(name) + 1;
+ 	unsigned i;
+ 	if (!g->agreed || !g->remote || g->closing) return;
+ 	if (!g->asked) {
+ 		g->asked = true;
+-		say(g, OPEN, 1, 7, "IPCRTR", 7);
++		say(g, OPEN, 1, name_size, name, name_size);
+ 	}
+ 	if (!g->acked || g->opened) return;
+ 	g->opened = true;
+-	LOG(g, "mi8gl: IPCRTR open both ways\n");
++	LOG(g, "mi8gl: %s open both ways\n", name);
+ 	for (i = 0; i < 10; i++) if (!offer(g, sizes[i], true)) {
+ 		broken(g, "initial intent allocation failed");
+ 		break;
+@@ -667,7 +686,8 @@ pump(struct mi8_glink *g)
+ 				if (!v->reusable) {
+ 					MI8_FREE(v->data, v->size); memset(v, 0, sizeof(*v));
+ 				}
+-				qrtr_input(g, packet, total);
++				if (g->cfg.raw_channel != NULL) g->cfg.raw_receive(g->cfg.ctx, packet, total);
++				else qrtr_input(g, packet, total);
+ 				MI8_FREE(packet, total);
+ 			}
+ 			continue;
+@@ -686,7 +706,8 @@ pump(struct mi8_glink *g)
+ 			break;
+ 		case OPEN:
+ 			say(g, OPEN_ACK, cid, 0, NULL, 0);
+-			if ((arg & 0xffff) == 7 && !memcmp(extra, "IPCRTR", 7)) {
++			if ((arg & 0xffff) == strlen(g->cfg.raw_channel != NULL ? g->cfg.raw_channel : "IPCRTR") + 1 &&
++			    !memcmp(extra, g->cfg.raw_channel != NULL ? g->cfg.raw_channel : "IPCRTR", arg & 0xffff)) {
+ 				if (g->remote && g->remote != cid) { broken(g, "IPCRTR channel changed without close"); break; }
+ 				g->remote = cid;
+ 			} else LOG(g, "mi8gl: unsupported remote channel %u %s: acknowledged, data ignored\n", cid, extra);
+@@ -846,6 +867,8 @@ mi8_glink_create(const struct mi8_glink_cfg *cfg)
+ 	unsigned i;
+ 	if (!cfg || !cfg->name || !cfg->smem_item || !cfg->smem_read || !cfg->smem_write32 ||
+ 	    !cfg->ring || !cfg->sleep_us || !cfg->now_us) return NULL;
++	if ((cfg->raw_channel == NULL) != (cfg->raw_receive == NULL)) return NULL;
++	if (cfg->raw_channel != NULL && (strlen(cfg->raw_channel) == 0 || strlen(cfg->raw_channel) >= 32)) return NULL;
+ 	g = MI8_ALLOC(sizeof(*g));
+ 	if (!g) return NULL;
+ 	memset(g, 0, sizeof(*g)); g->cfg = *cfg;
+@@ -910,6 +933,28 @@ mi8_glink_poll_once(struct mi8_glink *g)
+ 	leave(g);
+ }
+ 
++int
++mi8_glink_raw_send(struct mi8_glink *g, const void *data, size_t length)
++{
++	struct outgoing *o;
++	int error;
++	if (g == NULL || data == NULL || length == 0) return EINVAL;
++	if (length > MI8_GLINK_MAX_DATAGRAM) return EMSGSIZE;
++	enter(g);
++	if (g->cfg.raw_channel == NULL) { leave(g); return EINVAL; }
++	if (!g->up || !g->opened || g->broken) { leave(g); return ENOTCONN; }
++	o = queue_raw(g, data, (uint32_t)length);
++	if (o == NULL) { leave(g); return ENOMEM; }
++	do {
++		pump(g); progress(g);
++		if (!o->done) g->cfg.sleep_us(g->cfg.ctx, 1000);
++	} while (!o->done);
++	error = o->error;
++	MI8_FREE(o, sizeof(*o) + o->length);
++	leave(g);
++	return error;
++}
++
+ void
+ mi8_glink_stop(struct mi8_glink *g)
+ {
+@@ -946,7 +991,7 @@ mi8_glink_destroy(struct mi8_glink *g)
+ const struct redwood_qrtr_ops *
+ mi8_glink_qrtr_ops(struct mi8_glink *g)
+ {
+-	return g ? &all_ops[g->slot] : NULL;
++	return g && g->cfg.raw_channel == NULL ? &all_ops[g->slot] : NULL;
+ }
+ 
+ int
+diff --git a/bsd/dev/mi8_rproc.c b/bsd/dev/mi8_rproc.c
+index 64b8ab6..44129cc
+--- a/bsd/dev/mi8_rproc.c
++++ b/bsd/dev/mi8_rproc.c
+@@ -3830,12 +3830,44 @@ audio_glink_prepare(void)
+ 	return true;
+ }
+ 
++/* APR core-service state request, using the packet layout already used by
++ * redwood_adsp.c (https://github.com/oosexgang/hackios-xnu-kernel, APSL-2.0).
++ * This does not configure an audio stream or amplifier. */
++struct audio_apr_header {
++	uint16_t field, size;
++	uint8_t from_service, from_domain;
++	uint16_t from_port;
++	uint8_t to_service, to_domain;
++	uint16_t to_port;
++	uint32_t token, opcode;
++};
++struct audio_apr_probe { bool answered; uint32_t state; };
++
++static void
++audio_apr_receive(void *ctx, const void *data, size_t length)
++{
++	struct audio_apr_probe *probe = ctx;
++	struct audio_apr_header h;
++	uint32_t state;
++	if (length < sizeof(h)) return;
++	memcpy(&h, data, sizeof(h));
++	uint32_t header_length = ((h.field >> 4) & 0xf) * 4;
++	if (header_length < sizeof(h) || header_length > length || h.size > length || h.size < header_length) return;
++	say("mi8rp: audio-apr: response opcode %#x token %u length %u\n", h.opcode, h.token, h.size);
++	if (h.token != 1 || h.opcode != 0x0001290du || h.size - header_length < sizeof(state)) return;
++	memcpy(&state, (const uint8_t *)data + header_length, sizeof(state));
++	probe->state = state;
++	probe->answered = true;
++	say("mi8rp: audio-apr: core state %u\n", state);
++}
++
+ static void
+-audio_glink_probe(void)
++audio_glink_probe(bool apr)
+ {
+ 	struct mi8_glink_cfg cfg;
+ 	struct mi8_glink *link;
+-	bool started = false;
++	struct audio_apr_probe answer = { 0 };
++	bool started = false, sent = false;
+ 	bzero(&cfg, sizeof(cfg));
+ 	cfg.name = "adsp";
+ 	cfg.remote_pid = SMEM_ADSP;
+@@ -3846,12 +3878,17 @@ audio_glink_probe(void)
+ 	cfg.sleep_us = svc_sleep_us;
+ 	cfg.now_us = svc_now_us;
+ 	cfg.log = svc_log;
++	if (apr) {
++		cfg.ctx = &answer;
++		cfg.raw_channel = "apr_audio_svc";
++		cfg.raw_receive = audio_apr_receive;
++	}
+ 	link = mi8_glink_create(&cfg);
+ 	if (link == NULL) {
+ 		say("mi8rp: audio-glink: cannot allocate link\n");
+ 		return;
+ 	}
+-	for (unsigned i = 0; i < 500; i++) {
++	for (unsigned i = 0; i < (apr ? 1000u : 500u); i++) {
+ 		uint32_t offset, size;
+ 		if (!started && audio_glink_item(NULL, 480, &offset, &size)) {
+ 			started = mi8_glink_start(link) == 0;
+@@ -3859,9 +3896,21 @@ audio_glink_probe(void)
+ 			say("mi8rp: audio-glink: link started\n");
+ 		}
+ 		if (started) mi8_glink_poll_once(link);
++		if (apr && started && !sent && i % 25 == 0) {
++			struct audio_apr_header request = { .field = 0x250, .size = sizeof(request),
++			    .from_service = 3, .from_domain = 5, .to_service = 3, .to_domain = 4,
++			    .token = 1, .opcode = 0x0001290cu };
++			int error = mi8_glink_raw_send(link, &request, sizeof(request));
++			if (error != ENOTCONN) {
++				sent = true;
++				say("mi8rp: audio-apr: state request %s (%d)\n", error == 0 ? "sent" : "failed", error);
++			}
++		}
++		if (apr && answer.answered) break;
+ 		delay_for_interval(10, NSEC_PER_MSEC);
+ 	}
+ 	if (!started) say("mi8rp: audio-glink: no remote FIFO or link could not start\n");
++	if (apr && !answer.answered) say("mi8rp: audio-apr: no valid core state response\n");
+ 	mi8_glink_destroy(link);
+ 	say("mi8rp: audio-glink: probe ended; DSP stop follows\n");
+ }
+@@ -3892,7 +3941,7 @@ steps_from_five(void *parameter, __unused wait_result_t wr)
+ 	if (last >= 7 && step_header() && step_image() && last >= 8) {
+ 		bool up = step_start();
+ 
+-		if (up && last >= 9) audio_glink_probe();
++		if (up && last >= 9) audio_glink_probe(last >= 10);
+ 		if (adsp_started) {
+ 			dsp_shutdown(up ? "the watch is over" : "it did not come up");
+ 		}

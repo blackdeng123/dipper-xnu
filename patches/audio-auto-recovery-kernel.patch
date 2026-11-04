@@ -1,0 +1,37 @@
+--- a/osfmk/arm64/loader_return.c
++++ b/osfmk/arm64/loader_return.c
+@@ -475,6 +475,34 @@
+ }
+ STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, loader_return_timer_init);
+ 
++/* Diagnostic-only fallback: request the same save-and-reboot path as the
++ * loader command, even if the USB command channel stops responding. */
++static void
++loader_auto_reboot(__unused thread_call_param_t p0, __unused thread_call_param_t p1)
++{
++	uint64_t expected = 0;
++	if (__atomic_compare_exchange_n(&loader_live.stop, &expected, 2, false,
++	    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
++		loader_log_puts("automatic recovery: timed save and reboot requested\n");
++		__asm__ volatile ("dc cvac, %0; dsb sy" : : "r" ((uintptr_t)&loader_live.stop) : "memory");
++	}
++}
++
++__startup_func
++static void
++loader_auto_reboot_init(void)
++{
++	uint32_t seconds = 0;
++	uint64_t deadline;
++	if (!PE_parse_boot_argn("auto_reboot_after", &seconds, sizeof(seconds)) ||
++	    seconds < 120 || seconds > 3600) return;
++	thread_call_t call = thread_call_allocate(loader_auto_reboot, NULL);
++	if (!call) return;
++	clock_interval_to_deadline(seconds, NSEC_PER_SEC, &deadline);
++	thread_call_enter_delayed(call, deadline);
++}
++STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, loader_auto_reboot_init);
++
+ /*
+  * A loader that watches from another core also listens to the host, and passes on a request to
+  * end the run ("xl stop") by setting loader_live.stop. Look once a second.
