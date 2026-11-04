@@ -1,6 +1,6 @@
 # 第三方来源与修改记录
 
-更新日期：2026-10-30。上游版本见 `upstream.lock.json`，适配文件及其内容摘要见 `source-manifest.json`。补丁包含 dipper 平台适配，原有第三方版权和许可声明继续适用。
+更新日期：2026-10-31。上游版本见 `upstream.lock.json`，适配文件及其内容摘要见 `source-manifest.json`。补丁包含 dipper 平台适配，原有第三方版权和许可声明继续适用。
 
 | 来源 | 使用范围 | 许可证与通知 |
 |---|---|---|
@@ -16,9 +16,13 @@
 
 没有把这些项目的全部源码复制到本仓库。通过脚本取得的上游内容仍受原许可证约束。提供链接和致谢不取代保留版权、提供源码或其他许可义务。
 
+## 外部设备维护工具
+
+[Team Win / TWRP](https://twrp.me/xiaomi/xiaomimi8.html) 及 dipper 维护者提供设备维护所需的 Recovery 环境；本项目已验证使用版本为 3.7.0_9-0。TWRP 用于分区维护、Format Data、只读回读等，不是 iOS 的 UEFI 或内核组件。本仓库仅提供官方获取入口和操作说明，不附带或镜像分发 TWRP 二进制，其权利与许可遵循上游声明。
+
 ## GPU 代码的许可范围
 
-Linux GPU 初始化表按 GPL-2.0-only 保留来源、版权及许可证全文，与 ISC ath10k 分开处理。该表由 APSL 内核驱动直接包含，组合分发条件尚未解决。Mesa/freedreno 与 Fuchsia 的宽松许可来源仅覆盖部分初始化；来源、差异和验证范围见 [GPU 许可说明](docs/GPU_LICENSE.md)。
+Linux GPU 初始化表按 GPL-2.0-only 保留来源、版权及许可证全文，与 ISC ath10k 分开处理。该表由 APSL 内核驱动直接包含，组合分发条件尚未解决。Mesa/freedreno 与 Fuchsia 的宽松许可来源仅覆盖部分初始化；来源、差异和验证范围见 [GPU 许可说明](docs/legal/GPU_LICENSE.md)。
 
 dipper 原创修改的作者为 yanei，其原创部分采用 MIT。第三方源文件声明及作者署名保留，不属于该 MIT 授权范围。
 
@@ -28,6 +32,6 @@ dipper 原创修改的作者为 yanei，其原创部分采用 MIT。第三方源
 
 `system/kernel/mi8-i2c.h` 的事务时序以及 `mi8-speaker-i2c.inc`、`mi8-speaker-reset.inc` 的 GPIO 操作参考本项目 `patches/xnu-mi8.patch` 中 `mi8_fts.c` 的触摸屏 I²C 代码；该原创代码由 yanei 和 dipper-xnu contributors 按 [MIT](LICENSES/MI8-packaging-MIT.txt) 授权，新文件按文件标识采用 APSL-2.0。NXP I²C 和 TI 功放文档仅用于核对设备事实，没有复制文档内容。该总线及复位适配层尚未在设备上启用或连接功放。
 
-本机调试使用 Android [Simpleperf NDK r17b](https://android.googlesource.com/platform/prebuilts/simpleperf/+/ndk-r17b/) 可执行文件读取 Linux 追踪事件；该工具属于 Android 开源项目，其源代码及第三方依赖按上游各自的许可处理，没有引入仓库。`tools/extract-i2c-perf.py` 是解析其文本输出的项目原创 MIT 工具，不包含采样得到的设备固件或校准数据。
+本机调试使用 Android [Simpleperf NDK r17b](https://android.googlesource.com/platform/prebuilts/simpleperf/+/ndk-r17b/) 可执行文件读取 Linux 追踪事件；该工具属于 Android 开源项目，其源代码及第三方依赖按上游各自的许可处理，没有引入仓库。`tools/build/extract-i2c-perf.py` 是解析其文本输出的项目原创 MIT 工具，不包含采样得到的设备固件或校准数据。
 
-`tools/build-tas-init-transcript.py`、`tools/twrp-tas-init-check.c`、`system/kernel/mi8-tas-init.h`、`mi8-speaker-init.inc` 及其主机测试为项目原创 MIT 代码。生成的事务数据来自用户本机固件和校准，只存仓库外，不随项目分发；TI 数据手册和 Linux I²C 用户态文档仅供核对设备事实与接口。
+`tools/build/build-tas-init-transcript.py`、`tools/build/twrp-tas-init-check.c`、`system/kernel/mi8-tas-init.h`、`mi8-speaker-init.inc` 及其主机测试为项目原创 MIT 代码。生成的事务数据来自用户本机固件和校准，只存仓库外，不随项目分发；TI 数据手册和 Linux I²C 用户态文档仅供核对设备事实与接口。

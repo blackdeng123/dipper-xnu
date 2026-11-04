@@ -5,7 +5,7 @@ from pathlib import Path
 import struct
 import unittest
 
-path = Path(__file__).resolve().parents[1] / "tools/extract-i2c-perf.py"
+path = Path(__file__).resolve().parents[1] / "tools/build/extract-i2c-perf.py"
 spec = importlib.util.spec_from_file_location("extract_i2c_perf", path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

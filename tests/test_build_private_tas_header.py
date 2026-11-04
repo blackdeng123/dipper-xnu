@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOL = ROOT / "tools/build-private-tas-header.py"
+TOOL = ROOT / "tools/build/build-private-tas-header.py"
 
 
 class HeaderTest(unittest.TestCase):

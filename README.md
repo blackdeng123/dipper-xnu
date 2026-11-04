@@ -14,15 +14,17 @@
   <sub>小米 8 · iOS 16.5 · 实机运行照片</sub>
 </p>
 
-## 近期更新 · 2026-10-30
+## 近期更新 · 2026-10-31
 
-本次更新集中在 Wi-Fi 启动、屏幕亮度和源码构建流程：
+已在测试设备上走通“恢复 Android 布局 → 重新划出约 24 GiB darwin → 系统镜像回读 → 匹配新 GUID、重建 loader/UEFI → 进入 iOS”的流程，测试者确认启动成功。
 
-- 修复 Wi-Fi 初始化时连续内存申请失败，以及缺少特性文件导致无线无法启动的问题。
-- 修复亮度滑块移动但屏幕明暗不变的问题。
-- 补齐用户空间与镜像打包工具，以及已有分区的启动和外设测试教程。
+- 分区前后均完成 Format Data、Android 启动和数据容量验收；系统镜像准确范围回读 SHA256 与主机一致。
+- 教程整理为[分区、写入与回退](docs/install/INSTALL.md)和[配置、重建与启动](docs/install/STARTUP.md)，Android 恢复作为回退章节保留。
+- **固件提取已实测**：Android 10 / MIUI V12.5.2.0.QEACNXM 下，使用已有 root 提取 4 个 GPU 固件，双端及固定 SHA256 全部一致；步骤见[设备准备教程](docs/install/DEVICE_PREPARATION.md)。
+- **工具目录整理**：11 个脚本归入 `tools/prepare/`、`build/`、`partition/`、`tests/`，脚本引用与教程命令已同步，31 项回归测试通过。后续按[工具导航](tools/README.md)使用新路径。
+- 重新分区后的逐项外设回归与退出验收仍待完成；先前 Wi-Fi、亮度等测试结果单独保留，不视作本轮复测。
 
-完整变化见 [更新日志](CHANGELOG.md)。
+完整变化见 [更新日志](CHANGELOG.md)，阶段与证据见[首次安装任务](docs/development/FIRST_INSTALL.md)。
 
 ## 设备与系统
 
@@ -43,7 +45,7 @@ dipper 启动固件 → edk2-sdm845 UEFI → xnuloader → XNU → iOS 用户空
 
 ## 功能状态
 
-当前状态（2026-10-30）。验证范围为已有 `darwin` 分区上的短时运行；首次重新分区安装和长期稳定性尚未验证。
+当前状态（2026-10-31）。已有分区的短时外设测试与本次重新分区后的 iOS 启动均有记录；下表外设结果来自此前测试，重新分区后的完整回归、退出收尾和长期稳定性仍待验。
 
 | 功能 | 状态 |
 | --- | --- |
@@ -65,13 +67,27 @@ dipper 启动固件 → edk2-sdm845 UEFI → xnuloader → XNU → iOS 用户空
 
 构建使用 **Linux x86_64**，开发环境为 **Ubuntu 26.04.1 LTS**。本仓库通过固定上游版本和 dipper 适配补丁组织源码。
 
-1. [构建教程](docs/BUILD.md)与[输入材料](docs/INPUTS.md)：固定来源、校验、编译内核和 UEFI。
-2. [用户空间与打包](docs/USERLAND.md)：提取 IPSW、编译适配程序、生成启动卷和系统镜像。
-3. [安装与启动教程](docs/INSTALL.md)：备份、分区、写入系统、回读校验和启动；已有 darwin 分区见 [复用布局测试](docs/EXISTING_INSTALL.md)。
+开始前先看[设备版本、TWRP 与固件准备](docs/install/DEVICE_PREPARATION.md)，确认本机版本和输入来源。
+
+1. [构建教程](docs/build/BUILD.md)与[输入材料](docs/build/INPUTS.md)：固定来源、校验、编译内核和 UEFI。
+2. [用户空间与打包](docs/build/USERLAND.md)：提取 IPSW、编译适配程序、生成启动卷和系统镜像。
+3. [分区、写入与回退](docs/install/INSTALL.md)：备份、分区、格式化、系统镜像回读与恢复 Android。
+4. [配置、重建与启动](docs/install/STARTUP.md)：匹配新 GUID、重建 loader/UEFI、打包和日常 RAM 启动；[外设测试参考](docs/install/EXISTING_INSTALL.md)。
+
+工具入口按用途分类，命令均从仓库根目录执行：
+
+| 目录 | 用途 |
+| --- | --- |
+| `tools/prepare/` | 固定源码准备、SDK 校验、IPSW 提取 |
+| `tools/build/` | 编译加载器、UEFI、用户态，打包镜像与载荷 |
+| `tools/partition/` | 分区及 Android 恢复方案生成、回读核验 |
+| `tools/tests/` | 主机回归测试 |
+
+完整脚本清单见[工具导航](tools/README.md)。旧实验记录保留当时路径，后续运行请使用当前教程的新路径。
 
 **首次安装需要划出独立的 `darwin` 分区，会清空 Android 用户数据。** 系统持久写入该分区，之后通过临时加载 UEFI 启动。
 
-仓库仅提供源码、补丁和构建工具。系统镜像、专有 SDK、设备固件与备份需自行合法获取。构建及实机测试的详细依据见 [验证记录](docs/VALIDATION.md)。
+仓库仅提供源码、补丁和构建工具，**不提供预编译内核或系统镜像**：内核需在你自己的机器上编译（原因见 [GPU 许可说明](docs/legal/GPU_LICENSE.md#分发方式2026-10-31-起)）。系统镜像、专有 SDK、设备固件与备份需自行合法获取。构建及实机测试的详细依据见 [验证记录](docs/validation/VALIDATION.md)。
 
 ## 已知问题
 
@@ -86,6 +102,8 @@ dipper 启动固件 → edk2-sdm845 UEFI → xnuloader → XNU → iOS 用户空
 
 欢迎提交问题、源码改进和可复现的测试结果。提交时请注明设备、源码版本和测试方法，并区分主机测试与实机结果。
 
+开发过程与 AI 接手入口见[开发流程与现场交接](docs/development/DEVELOPMENT.md)，每轮证据沿用 `work/runs/`，不另复制源码树。
+
 详见 [贡献指南](CONTRIBUTING.md)。请勿在 Issue 或补丁中附带个人数据、设备备份或专有固件。
 
 ## 致谢
@@ -97,12 +115,15 @@ dipper 启动固件 → edk2-sdm845 UEFI → xnuloader → XNU → iOS 用户空
 - **edk2-porting / Renegade Project、TianoCore、SimpleInit**：SDM845 的 UEFI 与启动支持。
 - **UniXNU / DarwinBoot**：启动组件与早期移植参考。
 - **Linux、Mesa / freedreno、FreeBSD**：硬件驱动、图形与兼容层基础。
+- **[Team Win / TWRP 与 dipper 维护者](https://twrp.me/xiaomi/xiaomimi8.html)**：提供分区维护、格式化与镜像回读所用的 Recovery 环境。
 - **Theos、LLVM 及相关工具链项目**：构建工具。
 
 完整说明见 [致谢](ACKNOWLEDGEMENTS.md) 与 [第三方来源](THIRD_PARTY_NOTICES.md)。
 
 ## 许可证
 
-各部分代码遵循其对应许可证，第三方版权声明予以保留。本项目并非整体采用单一 MIT 许可证；具体适用范围见 [许可说明](LICENSE.md) 和 [LICENSES](LICENSES/)。其他文件的许可范围见 [许可证说明](docs/LICENSE_REVIEW.md)。
+各部分代码遵循其对应许可证，第三方版权声明予以保留。本项目并非整体采用单一 MIT 许可证；具体适用范围见 [许可说明](LICENSE.md) 和 [LICENSES](LICENSES)。其他文件的许可范围见 [许可证说明](docs/legal/LICENSE_REVIEW.md)。
 
 本项目为独立研究项目，与设备厂商、系统厂商及所参考项目不存在官方隶属关系。
+
+全部文档按用途分类，见 [文档导航](docs/README.md)。

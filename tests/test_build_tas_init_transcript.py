@@ -4,7 +4,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-path = Path(__file__).resolve().parents[1] / "tools/build-tas-init-transcript.py"
+path = Path(__file__).resolve().parents[1] / "tools/build/build-tas-init-transcript.py"
 spec = importlib.util.spec_from_file_location("build_tas_init_transcript", path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

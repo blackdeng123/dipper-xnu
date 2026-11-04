@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("persistent_builder", ROOT / "tools/build-persistent-autoboot.py")
+SPEC = importlib.util.spec_from_file_location("persistent_builder", ROOT / "tools/build/build-persistent-autoboot.py")
 BUILDER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUILDER)
 
